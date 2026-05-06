@@ -1,0 +1,575 @@
+import React, { useState, useEffect } from 'react';
+import { Heart, Plus, Edit2, Trash2, MessageCircle, Bell, Calendar, User } from 'lucide-react';
+
+export default function BirthdayReminderApp() {
+  const [contacts, setContacts] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    phoneNumber: '',
+    eventType: 'Birthday',
+    date: '',
+    notes: ''
+  });
+  const [notificationSettings, setNotificationSettings] = useState({
+    oneDayBefore: true,
+    sameDay: true
+  });
+
+  // Load contacts from storage on mount
+  useEffect(() => {
+    loadContacts();
+    checkNotifications();
+  }, []);
+
+  // Check notifications every minute
+  useEffect(() => {
+    const interval = setInterval(checkNotifications, 60000);
+    return () => clearInterval(interval);
+  }, [contacts]);
+
+  const loadContacts = async () => {
+    try {
+      const result = await window.storage.get('birthday-reminders');
+      if (result) {
+        setContacts(JSON.parse(result.value));
+      }
+    } catch (error) {
+      console.log('No saved contacts yet');
+    }
+  };
+
+  const saveContacts = async (newContacts) => {
+    try {
+      await window.storage.set('birthday-reminders', JSON.stringify(newContacts));
+      setContacts(newContacts);
+    } catch (error) {
+      console.error('Error saving contacts:', error);
+    }
+  };
+
+  const checkNotifications = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    contacts.forEach(contact => {
+      const [year, month, day] = contact.date.split('-');
+      const nextDate = new Date(today.getFullYear(), parseInt(month) - 1, parseInt(day));
+      
+      if (nextDate < today) {
+        nextDate.setFullYear(today.getFullYear() + 1);
+      }
+
+      const daysUntil = Math.floor((nextDate - today) / (1000 * 60 * 60 * 24));
+      
+      // Notification 1 day before
+      if (notificationSettings.oneDayBefore && daysUntil === 1) {
+        sendNotification(`${contact.name}'s ${contact.eventType} is tomorrow!`);
+      }
+      
+      // Notification on the day
+      if (notificationSettings.sameDay && daysUntil === 0) {
+        sendNotification(`🎉 Today is ${contact.name}'s ${contact.eventType}!`);
+      }
+    });
+  };
+
+  const sendNotification = (message) => {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('Birthday Reminder', {
+        body: message,
+        icon: '🎂',
+        tag: message // Prevent duplicate notifications
+      });
+    }
+  };
+
+  const requestNotificationPermission = () => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().then(permission => {
+        if (permission === 'granted') {
+          alert('Notifications enabled!');
+        }
+      });
+    }
+  };
+
+  const handleAddEdit = () => {
+    if (!formData.name || !formData.date) {
+      alert('Please fill in name and date');
+      return;
+    }
+
+    if (editingId) {
+      const updatedContacts = contacts.map(c =>
+        c.id === editingId ? { ...c, ...formData } : c
+      );
+      saveContacts(updatedContacts);
+      setEditingId(null);
+    } else {
+      const newContact = {
+        id: Date.now(),
+        ...formData
+      };
+      saveContacts([...contacts, newContact]);
+    }
+
+    setFormData({ name: '', phoneNumber: '', eventType: 'Birthday', date: '', notes: '' });
+    setShowForm(false);
+  };
+
+  const handleEdit = (contact) => {
+    setFormData(contact);
+    setEditingId(contact.id);
+    setShowForm(true);
+  };
+
+  const handleDelete = (id) => {
+    if (confirm('Are you sure you want to delete this contact?')) {
+      saveContacts(contacts.filter(c => c.id !== id));
+    }
+  };
+
+  const generateWhatsAppMessage = (contact) => {
+    const messages = {
+      'Birthday': `🎂 Happy Birthday ${contact.name}! Wishing you a wonderful day filled with joy and celebration! 🎉🎈`,
+      'Anniversary': `💕 Happy Anniversary ${contact.name}! Celebrating your special day with you! 💑✨`,
+      'Wedding': `👰 Happy Wedding Anniversary ${contact.name}! Wishing you continued happiness! 💍💕`,
+      'Other': `🎉 Happy Special Day ${contact.name}! Thinking of you on your special occasion! 🌟`
+    };
+    return messages[contact.eventType] || messages['Other'];
+  };
+
+  const sendWhatsApp = (contact) => {
+    const message = generateWhatsAppMessage(contact);
+    const encodedMessage = encodeURIComponent(message);
+    const phoneNumber = contact.phoneNumber.replace(/\D/g, '');
+    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
+    window.open(whatsappUrl, '_blank');
+  };
+
+  const getDaysUntil = (dateString) => {
+    const [year, month, day] = dateString.split('-');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    let nextDate = new Date(today.getFullYear(), parseInt(month) - 1, parseInt(day));
+    if (nextDate < today) {
+      nextDate.setFullYear(today.getFullYear() + 1);
+    }
+    
+    return Math.floor((nextDate - today) / (1000 * 60 * 60 * 24));
+  };
+
+  const getDateIcon = (daysUntil) => {
+    if (daysUntil === 0) return '🔥';
+    if (daysUntil === 1) return '⏰';
+    if (daysUntil <= 7) return '📅';
+    return '📆';
+  };
+
+  const sortedContacts = [...contacts].sort((a, b) => {
+    const daysA = getDaysUntil(a.date);
+    const daysB = getDaysUntil(b.date);
+    return daysA - daysB;
+  });
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #fff5f7 0%, #f0e8ff 100%)',
+      fontFamily: '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif',
+      padding: '0',
+      margin: '0'
+    }}>
+      {/* Header */}
+      <div style={{
+        background: 'linear-gradient(135deg, #ff6b9d 0%, #c06c84 100%)',
+        color: 'white',
+        padding: '24px 16px',
+        textAlign: 'center',
+        boxShadow: '0 4px 15px rgba(255,107,157,0.3)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', marginBottom: '8px' }}>
+          <Heart size={32} fill="white" />
+          <h1 style={{ margin: 0, fontSize: '28px', fontWeight: '700' }}>Moment Keeper</h1>
+        </div>
+        <p style={{ margin: '8px 0 0 0', opacity: 0.9, fontSize: '14px' }}>Never miss a special day</p>
+      </div>
+
+      {/* Notification Settings */}
+      <div style={{
+        background: 'white',
+        margin: '16px',
+        padding: '16px',
+        borderRadius: '12px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Bell size={20} color="#ff6b9d" />
+          <span style={{ fontSize: '14px', color: '#333' }}>Enable Notifications</span>
+        </div>
+        <button
+          onClick={requestNotificationPermission}
+          style={{
+            background: 'linear-gradient(135deg, #ff6b9d 0%, #c06c84 100%)',
+            color: 'white',
+            border: 'none',
+            padding: '8px 16px',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '12px',
+            fontWeight: '600'
+          }}
+        >
+          Allow
+        </button>
+      </div>
+
+      {/* Add Contact Button */}
+      <div style={{ padding: '0 16px', marginBottom: '16px' }}>
+        <button
+          onClick={() => {
+            setShowForm(!showForm);
+            setEditingId(null);
+            setFormData({ name: '', phoneNumber: '', eventType: 'Birthday', date: '', notes: '' });
+          }}
+          style={{
+            width: '100%',
+            background: 'linear-gradient(135deg, #ff6b9d 0%, #c06c84 100%)',
+            color: 'white',
+            border: 'none',
+            padding: '16px',
+            borderRadius: '12px',
+            fontSize: '16px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            boxShadow: '0 4px 12px rgba(255,107,157,0.3)',
+            transition: 'transform 0.2s'
+          }}
+          onMouseDown={e => e.currentTarget.style.transform = 'scale(0.98)'}
+          onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+        >
+          <Plus size={20} />
+          {editingId ? 'Update Contact' : 'Add New Date'}
+        </button>
+      </div>
+
+      {/* Form */}
+      {showForm && (
+        <div style={{
+          background: 'white',
+          margin: '0 16px 16px 16px',
+          padding: '20px',
+          borderRadius: '12px',
+          boxShadow: '0 4px 15px rgba(0,0,0,0.1)'
+        }}>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#666', marginBottom: '6px' }}>
+              Name
+            </label>
+            <input
+              type="text"
+              placeholder="Enter name"
+              value={formData.name}
+              onChange={e => setFormData({ ...formData, name: e.target.value })}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: '2px solid #f0e8ff',
+                borderRadius: '8px',
+                fontSize: '14px',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#666', marginBottom: '6px' }}>
+              Event Type
+            </label>
+            <select
+              value={formData.eventType}
+              onChange={e => setFormData({ ...formData, eventType: e.target.value })}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: '2px solid #f0e8ff',
+                borderRadius: '8px',
+                fontSize: '14px',
+                boxSizing: 'border-box'
+              }}
+            >
+              <option>Birthday</option>
+              <option>Anniversary</option>
+              <option>Wedding</option>
+              <option>Other</option>
+            </select>
+          </div>
+
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#666', marginBottom: '6px' }}>
+              Date (MM-DD)
+            </label>
+            <input
+              type="date"
+              value={formData.date}
+              onChange={e => setFormData({ ...formData, date: e.target.value })}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: '2px solid #f0e8ff',
+                borderRadius: '8px',
+                fontSize: '14px',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#666', marginBottom: '6px' }}>
+              WhatsApp Number (with country code, e.g., +49123456789)
+            </label>
+            <input
+              type="tel"
+              placeholder="+49..."
+              value={formData.phoneNumber}
+              onChange={e => setFormData({ ...formData, phoneNumber: e.target.value })}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: '2px solid #f0e8ff',
+                borderRadius: '8px',
+                fontSize: '14px',
+                boxSizing: 'border-box'
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#666', marginBottom: '6px' }}>
+              Notes (optional)
+            </label>
+            <textarea
+              placeholder="Add any notes..."
+              value={formData.notes}
+              onChange={e => setFormData({ ...formData, notes: e.target.value })}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: '2px solid #f0e8ff',
+                borderRadius: '8px',
+                fontSize: '14px',
+                boxSizing: 'border-box',
+                minHeight: '80px',
+                fontFamily: 'inherit'
+              }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button
+              onClick={handleAddEdit}
+              style={{
+                flex: 1,
+                background: 'linear-gradient(135deg, #ff6b9d 0%, #c06c84 100%)',
+                color: 'white',
+                border: 'none',
+                padding: '12px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '14px'
+              }}
+            >
+              {editingId ? 'Update' : 'Add'}
+            </button>
+            <button
+              onClick={() => {
+                setShowForm(false);
+                setEditingId(null);
+                setFormData({ name: '', phoneNumber: '', eventType: 'Birthday', date: '', notes: '' });
+              }}
+              style={{
+                flex: 1,
+                background: '#f0e8ff',
+                color: '#666',
+                border: 'none',
+                padding: '12px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '14px'
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Contacts List */}
+      <div style={{ padding: '0 16px 32px 16px' }}>
+        {sortedContacts.length === 0 ? (
+          <div style={{
+            background: 'white',
+            padding: '40px 20px',
+            borderRadius: '12px',
+            textAlign: 'center',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+          }}>
+            <Calendar size={48} color="#ff6b9d" style={{ margin: '0 auto 16px', opacity: 0.5 }} />
+            <p style={{ color: '#999', fontSize: '16px', margin: 0 }}>No dates added yet</p>
+            <p style={{ color: '#bbb', fontSize: '14px', margin: '8px 0 0 0' }}>Add your first important date to get started!</p>
+          </div>
+        ) : (
+          sortedContacts.map(contact => {
+            const daysUntil = getDaysUntil(contact.date);
+            const dateObj = new Date(contact.date);
+            const dateDisplay = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            
+            return (
+              <div
+                key={contact.id}
+                style={{
+                  background: 'white',
+                  marginBottom: '16px',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                  border: daysUntil <= 1 ? '2px solid #ff6b9d' : 'none',
+                  transition: 'transform 0.2s'
+                }}
+              >
+                {/* Card Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                      <span style={{ fontSize: '20px' }}>{getDateIcon(daysUntil)}</span>
+                      <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#333' }}>
+                        {contact.name}
+                      </h3>
+                    </div>
+                    <p style={{ margin: '4px 0', color: '#999', fontSize: '13px' }}>
+                      {contact.eventType} • {dateDisplay}
+                    </p>
+                  </div>
+                  <span style={{
+                    background: daysUntil === 0 ? '#ff6b9d' : daysUntil === 1 ? '#ffa500' : '#e0e0e0',
+                    color: daysUntil === 0 || daysUntil === 1 ? 'white' : '#666',
+                    padding: '6px 12px',
+                    borderRadius: '20px',
+                    fontSize: '12px',
+                    fontWeight: '600'
+                  }}>
+                    {daysUntil === 0 ? 'TODAY!' : daysUntil === 1 ? 'Tomorrow' : `${daysUntil}d`}
+                  </span>
+                </div>
+
+                {/* Notes */}
+                {contact.notes && (
+                  <p style={{
+                    margin: '12px 0',
+                    padding: '10px',
+                    background: '#f9f5ff',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    color: '#666',
+                    fontStyle: 'italic'
+                  }}>
+                    💭 {contact.notes}
+                  </p>
+                )}
+
+                {/* Action Buttons */}
+                <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                  {contact.phoneNumber && (
+                    <button
+                      onClick={() => sendWhatsApp(contact)}
+                      style={{
+                        flex: 1,
+                        background: '#25D366',
+                        color: 'white',
+                        border: 'none',
+                        padding: '10px',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <MessageCircle size={16} />
+                      WhatsApp
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleEdit(contact)}
+                    style={{
+                      background: '#f0e8ff',
+                      color: '#ff6b9d',
+                      border: 'none',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <Edit2 size={16} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(contact.id)}
+                    style={{
+                      background: '#ffe6f0',
+                      color: '#ff6b9d',
+                      border: 'none',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Mobile App Bar */}
+      <div style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        background: 'rgba(255,255,255,0.95)',
+        backdropFilter: 'blur(10px)',
+        borderTop: '1px solid #f0e8ff',
+        padding: '12px 16px 20px',
+        fontSize: '12px',
+        color: '#999',
+        textAlign: 'center',
+        boxShadow: '0 -2px 10px rgba(0,0,0,0.05)'
+      }}>
+        💾 Your data is saved locally • No cloud sync • Privacy protected
+      </div>
+    </div>
+  );
+}
